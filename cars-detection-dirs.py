@@ -5,10 +5,8 @@ import pry
 
 import matplotlib.pyplot as plt
 
-
 from random import randint
 import time
-
 
 class Car:
     tracks = []
@@ -29,24 +27,6 @@ class Car:
 
     def getRGB(self):  # For the RGB colour
         return (self.R, self.G, self.B)
-    #
-    # def getTracks(self):
-    #     return self.tracks
-    #
-    # def getId(self):  # For the ID
-    #     return self.id
-    #
-    # def getState(self):
-    #     return self.is_counted
-    #
-    # def getDir(self):
-    #     return self.dir
-    #
-    # def getX(self):  # for x coordinate
-    #     return self.x
-    #
-    # def getY(self):  # for y coordinate
-    #     return self.y
 
     def updateCoords(self, xn, yn):
         self.age = 0
@@ -117,8 +97,14 @@ line_down = int(3 * (height / 5))
 up_limit = int(1 * (height / 5))
 down_limit = int(4 * (height / 5))
 
-
-end = False  # use to quit from pry
+pt1 = [0, line_down]
+pt2 = [width, line_down]
+pts_L1 = np.array([pt1, pt2], np.int32)
+pts_L1 = pts_L1.reshape((-1, 1, 2))
+pt3 = [0, line_up]
+pt4 = [width, line_up]
+pts_L2 = np.array([pt3, pt4], np.int32)
+pts_L2 = pts_L2.reshape((-1, 1, 2))
 
 
 def show(img):
@@ -145,7 +131,7 @@ bg_subtractor = cv2.createBackgroundSubtractorMOG2(
 # skipping 500 frames to train bg subtractor
 train_bg_subtractor(bg_subtractor, cap, num=500)
 
-while(cap.isOpened() and not end):
+while(cap.isOpened()):
     ret, frame = cap.read()
     fgmask = bg_subtractor.apply(frame, None, 0.001)
 
@@ -156,29 +142,6 @@ while(cap.isOpened() and not end):
         filtered_bin_img = cv2.morphologyEx(filtered_bin_img, cv2.MORPH_CLOSE, kernel)
 
 
-
-        # old
-        # # Find Contours
-        # _, contours, hierarchy = cv2.findContours(
-        #     filtered_bin_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        #
-        # height, width = filtered_bin_img.shape
-        # min_x, min_y = width, height
-        # max_x = max_y = 0
-        #
-        # # computes the bounding box for the contour, and draws it on the frame,
-        # for contour in contours:
-        #     (x, y, w, h) = cv2.boundingRect(contour)
-        #     min_x, max_x = min(x, min_x), max(x + w, max_x)
-        #     min_y, max_y = min(y, min_y), max(y + h, max_y)
-        #     if w > 80 and h > 80:
-        #         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        #
-        # if max_x - min_x > 0 and max_y - min_y > 0:
-        #     cv2.rectangle(frame, (min_x, min_y),
-        #                   (max_x, max_y), (255, 0, 0), 2)
-
-        # Find Contours
         _, contours, hierarchy = cv2.findContours(
             filtered_bin_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         for contour in contours:
@@ -196,11 +159,11 @@ while(cap.isOpened() and not end):
                             new = False
                             car.updateCoords(cx, cy)
 
-                            if car.going_UP(line_down, line_up) and car.is_counted == False:
+                            if car.going_UP(line_down, line_up):
                                 cnt_up += 1
                                 car.is_counted = True
                                 print("ID:", car.id, 'crossed going up at', time.strftime("%c"))
-                            elif car.going_DOWN(line_down, line_up) and car.is_counted == False:
+                            elif car.going_DOWN(line_down, line_up):
                                 cnt_down += 1
                                 car.is_counted = True
                                 print("ID:", car.id, 'crossed going up at', time.strftime("%c"))
@@ -228,6 +191,11 @@ while(cap.isOpened() and not end):
             cv2.putText(frame, str(car.id), (car.x, car.y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.3, car.getRGB(), 1, cv2.LINE_AA)
 
+
+
+
+        frame=cv2.polylines(frame,[pts_L1],False,(255,0,0),thickness=2)
+        frame=cv2.polylines(frame,[pts_L2],False,(255,255,0),thickness=2)
         cv2.imshow('Frame', frame)
         cv2.imshow('Bin', bin_img)
         cv2.imshow('Filtered Bin', filtered_bin_img)
