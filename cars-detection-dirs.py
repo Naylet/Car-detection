@@ -39,7 +39,7 @@ class Car:
 
     def going_UP(self, mid_start, mid_end):
         if len(self.tracks) >= 2:
-            if self.is_counted == '0':
+            if self.is_counted == False:
                 if self.tracks[-1][1] < mid_end and self.tracks[-2][1] >= mid_end:
                     self.dir = 'up'
                     return True
@@ -70,41 +70,51 @@ class Car:
         return True
 
 
-videos = ["surveillance.m4v", "input.mp4"]
+videos = ["surveillance.m4v", "input.mp4", "videoplayback.mp4", "night.mp4", "night2.mp4", "counting.mp4"]
 cap = cv2.VideoCapture(videos[1])
 
 
 width = cap.get(3)
 height = cap.get(4)
 frameArea = height * width
-max_contour_area = frameArea / 400
-
-kernel = np.ones((3, 3), np.uint8)
 
 
 cars = []
-
 pid = 1
-max_p_age = 50
 cnt_up = 0
 cnt_down = 0
 
+#parametry do sterowania
+line_up = int(height * 3.5/5)
+line_down = int(height * 4/5)
+max_p_age = 5
+max_contour_area = frameArea / 400
 
-# Lines
-line_up = int(2 * (height / 5))
-line_down = int(3 * (height / 5))
+#
 
-up_limit = int(1 * (height / 5))
-down_limit = int(4 * (height / 5))
+up_limit = int(line_up * 5/6)
+down_limit = int(line_down * 7/6)
 
 pt1 = [0, line_down]
 pt2 = [width, line_down]
 pts_L1 = np.array([pt1, pt2], np.int32)
-pts_L1 = pts_L1.reshape((-1, 1, 2))
+line_down_pts = pts_L1.reshape((-1, 1, 2))
 pt3 = [0, line_up]
 pt4 = [width, line_up]
 pts_L2 = np.array([pt3, pt4], np.int32)
-pts_L2 = pts_L2.reshape((-1, 1, 2))
+line_up_pts = pts_L2.reshape((-1, 1, 2))
+
+pt5 =  [0, up_limit]
+pt6 =  [width, up_limit]
+pts_L3 = np.array([pt5,pt6], np.int32)
+up_limit_pts = pts_L3.reshape((-1,1,2))
+pt7 =  [0, down_limit]
+pt8 =  [width, down_limit]
+pts_L4 = np.array([pt7,pt8], np.int32)
+down_limit_pts = pts_L4.reshape((-1,1,2))
+
+font = cv2.FONT_HERSHEY_SIMPLEX
+
 
 
 def show(img):
@@ -112,6 +122,20 @@ def show(img):
     plt.title('Matplotlib')
     plt.show()
 
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+
+def filter_img(img):
+    _, bin_img = cv2.threshold(img, 220, 255, cv2.THRESH_BINARY)
+    # Fill any small holes
+    closing = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    # Remove noise
+    opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel)
+
+    # Dilate to merge adjacent blobs
+    dilation = cv2.dilate(opening, kernel, iterations=2)
+
+
+    return dilation
 
 def train_bg_subtractor(inst, cap, num=500):
     print('Training BG Subtractor...')
@@ -134,16 +158,15 @@ train_bg_subtractor(bg_subtractor, cap, num=500)
 while(cap.isOpened()):
     ret, frame = cap.read()
     fgmask = bg_subtractor.apply(frame, None, 0.001)
+    for car in cars:
+        car.age_one()
 
     if ret:
-        ret2, bin_img = cv2.threshold(fgmask, 220, 255, cv2.THRESH_BINARY)
 
-        filtered_bin_img = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-        filtered_bin_img = cv2.morphologyEx(filtered_bin_img, cv2.MORPH_CLOSE, kernel)
+        filtered_bin_img = filter_img(fgmask)
+        time.sleep(0.02)
 
-
-        _, contours, hierarchy = cv2.findContours(
-            filtered_bin_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        _, contours, hierarchy = cv2.findContours(filtered_bin_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > max_contour_area:
@@ -166,7 +189,7 @@ while(cap.isOpened()):
                             elif car.going_DOWN(line_down, line_up):
                                 cnt_down += 1
                                 car.is_counted = True
-                                print("ID:", car.id, 'crossed going up at', time.strftime("%c"))
+                                print("ID:", car.id, 'crossed going down at', time.strftime("%c"))
                             break
                         if car.is_counted:
                             if car.dir == 'down'and car.y > down_limit:
@@ -188,17 +211,31 @@ while(cap.isOpened()):
                     frame, (rect_x, rect_y), (rect_x + rect_width, rect_y + rect_height), (0, 255, 0), 2)
 
         for car in cars:
-            cv2.putText(frame, str(car.id), (car.x, car.y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, car.getRGB(), 1, cv2.LINE_AA)
+            cv2.putText(frame, str(car.id), (car.x, car.y), font, 0.3, car.getRGB(), 1, cv2.LINE_AA)
 
 
 
+        str_up='UP: '+str(cnt_up)
+        str_down='DOWN: '+str(cnt_down)
 
-        frame=cv2.polylines(frame,[pts_L1],False,(255,0,0),thickness=2)
-        frame=cv2.polylines(frame,[pts_L2],False,(255,255,0),thickness=2)
-        cv2.imshow('Frame', frame)
-        cv2.imshow('Bin', bin_img)
+        cv2.putText(frame, str_up, (10, 40), font, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, str_up, (10, 40), font, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, str_down, (10, 90), font, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, str_down, (10, 90), font, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+
+        green = (0, 153, 0)
+        light_green = (153, 255, 102)
+
+        blue = (51, 153, 255)
+        light_blue = (102, 204, 255)
+        frame = cv2.polylines(frame,[line_up_pts],False,green,thickness=2)
+        frame = cv2.polylines(frame,[up_limit_pts],False,light_green,thickness=2)
+
+        frame = cv2.polylines(frame,[line_down_pts],False,blue,thickness=2)
+        frame = cv2.polylines(frame,[down_limit_pts],False,light_blue,thickness=2)
+
         cv2.imshow('Filtered Bin', filtered_bin_img)
+        cv2.imshow('Frame', frame)
 
         if cv2.waitKey(1) & 0xff == ord('q'):
             break
