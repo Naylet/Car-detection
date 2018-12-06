@@ -1,12 +1,10 @@
 import cv2
 import numpy as np
 import time
-import pry
-
+#import pry
 import matplotlib.pyplot as plt
-
 from random import randint
-import time
+
 
 class Car:
     tracks = []
@@ -37,7 +35,7 @@ class Car:
     def timed_out(self):
         return self.done
 
-    def going_UP(self, mid_start, mid_end):
+    def crossed_up(self, mid_start, mid_end):
         if len(self.tracks) >= 2:
             if self.is_counted == False:
                 if self.tracks[-1][1] < mid_end and self.tracks[-2][1] >= mid_end:
@@ -50,7 +48,7 @@ class Car:
         else:
             return False
 
-    def going_DOWN(self, mid_start, mid_end):
+    def crossed_down(self, mid_start, mid_end):
         if len(self.tracks) >= 2:
             if self.is_counted == False:
                 if self.tracks[-1][1] > mid_start and self.tracks[-2][1] <= mid_start:
@@ -74,8 +72,8 @@ videos = ["surveillance.m4v", "input.mp4", "videoplayback.mp4", "night.mp4", "ni
 cap = cv2.VideoCapture(videos[1])
 
 
-width = cap.get(3)
-height = cap.get(4)
+width = int(cap.get(3))
+height = int(cap.get(4))
 frameArea = height * width
 
 
@@ -85,36 +83,17 @@ cnt_up = 0
 cnt_down = 0
 
 #parametry do sterowania
-line_up = int(height * 3.5/5)
-line_down = int(height * 4/5)
+counting_line_up = int(height * 3.5 / 5)
+counting_line_down = int(height * 4 / 5)
 max_p_age = 5
 max_contour_area = frameArea / 400
 
-#
-
-up_limit = int(line_up * 5/6)
-down_limit = int(line_down * 7/6)
-
-pt1 = [0, line_down]
-pt2 = [width, line_down]
-pts_L1 = np.array([pt1, pt2], np.int32)
-line_down_pts = pts_L1.reshape((-1, 1, 2))
-pt3 = [0, line_up]
-pt4 = [width, line_up]
-pts_L2 = np.array([pt3, pt4], np.int32)
-line_up_pts = pts_L2.reshape((-1, 1, 2))
-
-pt5 =  [0, up_limit]
-pt6 =  [width, up_limit]
-pts_L3 = np.array([pt5,pt6], np.int32)
-up_limit_pts = pts_L3.reshape((-1,1,2))
-pt7 =  [0, down_limit]
-pt8 =  [width, down_limit]
-pts_L4 = np.array([pt7,pt8], np.int32)
-down_limit_pts = pts_L4.reshape((-1,1,2))
+up_limit = int(counting_line_up * 5 / 6)
+down_limit = int(counting_line_down * 7 / 6)
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
 
 
 def show(img):
@@ -122,20 +101,21 @@ def show(img):
     plt.title('Matplotlib')
     plt.show()
 
-kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
 
 def filter_img(img):
     _, bin_img = cv2.threshold(img, 220, 255, cv2.THRESH_BINARY)
+
     # Fill any small holes
     closing = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+
     # Remove noise
     opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel)
 
     # Dilate to merge adjacent blobs
     dilation = cv2.dilate(opening, kernel, iterations=2)
 
-
     return dilation
+
 
 def train_bg_subtractor(inst, cap, num=500):
     print('Training BG Subtractor...')
@@ -163,6 +143,9 @@ while(cap.isOpened()):
 
     if ret:
 
+        cv2.line(frame, (0, counting_line_up), (width, counting_line_up), (0, 255, 0), 2)
+        cv2.line(frame, (0, counting_line_down), (width, counting_line_down), (255, 153, 51), 2)
+
         filtered_bin_img = filter_img(fgmask)
         time.sleep(0.02)
 
@@ -170,25 +153,40 @@ while(cap.isOpened()):
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > max_contour_area:
-                ####Tracking######
+
+                # --------------Tracking---------------
                 m = cv2.moments(contour)
                 cx = int(m['m10'] / m['m00'])
                 cy = int(m['m01'] / m['m00'])
-                rect_x, rect_y, rect_width, rect_height = cv2.boundingRect(contour)
                 new = True
-                if cy in range(up_limit, down_limit):
+
+                if cy in range(up_limit, down_limit):  # filters out contours that are above line (y starts at top)
+
+                    # centroid marker
+                    cv2.drawMarker(frame, (cx, cy), (0, 255, 255), cv2.MARKER_STAR, markerSize=5, thickness=3,
+                                   line_type=cv2.LINE_AA)
+
+                    # x,y is top left corner
+                    rect_x, rect_y, rect_width, rect_height = cv2.boundingRect(contour)
+
+                    # creates a rectangle around contour
+                    cv2.rectangle(frame, (rect_x, rect_y), (rect_x + rect_width, rect_y + rect_height), (0, 255, 0), 2)
+
                     for car in cars:
                         if abs(rect_x - car.x) <= rect_width and abs(rect_y - car.y) <= rect_height:
                             new = False
                             car.updateCoords(cx, cy)
 
-                            if car.going_UP(line_down, line_up):
+                            if car.crossed_up(counting_line_down, counting_line_up):
                                 cnt_up += 1
                                 car.is_counted = True
+                                cv2.line(frame, (0, counting_line_up), (width, counting_line_up), (0, 0, 255), 2)
                                 print("ID:", car.id, 'crossed going up at', time.strftime("%c"))
-                            elif car.going_DOWN(line_down, line_up):
+                            elif car.crossed_down(counting_line_down, counting_line_up):
                                 cnt_down += 1
                                 car.is_counted = True
+                                cv2.line(frame, (0, counting_line_down), (width, counting_line_down), (0, 0, 255), 2)
+
                                 print("ID:", car.id, 'crossed going down at', time.strftime("%c"))
                             break
                         if car.is_counted:
@@ -206,14 +204,8 @@ while(cap.isOpened()):
                         cars.append(p)
                         pid += 1
 
-                cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
-                img = cv2.rectangle(
-                    frame, (rect_x, rect_y), (rect_x + rect_width, rect_y + rect_height), (0, 255, 0), 2)
-
-        for car in cars:
-            cv2.putText(frame, str(car.id), (car.x, car.y), font, 0.3, car.getRGB(), 1, cv2.LINE_AA)
-
-
+                    for car in cars:
+                        cv2.putText(frame, str(car.id), (car.x, car.y), font, 0.3, car.getRGB(), 1, cv2.LINE_AA)
 
         str_up='UP: '+str(cnt_up)
         str_down='DOWN: '+str(cnt_down)
@@ -223,16 +215,8 @@ while(cap.isOpened()):
         cv2.putText(frame, str_down, (10, 90), font, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(frame, str_down, (10, 90), font, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
 
-        green = (0, 153, 0)
-        light_green = (153, 255, 102)
-
-        blue = (51, 153, 255)
-        light_blue = (102, 204, 255)
-        frame = cv2.polylines(frame,[line_up_pts],False,green,thickness=2)
-        frame = cv2.polylines(frame,[up_limit_pts],False,light_green,thickness=2)
-
-        frame = cv2.polylines(frame,[line_down_pts],False,blue,thickness=2)
-        frame = cv2.polylines(frame,[down_limit_pts],False,light_blue,thickness=2)
+        cv2.line(frame, (0, up_limit), (width, up_limit), (153, 255, 102), 2)
+        cv2.line(frame, (0, down_limit), (width, down_limit), (255, 204, 102), 2)
 
         cv2.imshow('Filtered Bin', filtered_bin_img)
         cv2.imshow('Frame', frame)
